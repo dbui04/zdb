@@ -1,20 +1,55 @@
 #include "database/byte_buffer.h"
 #include <cassert>
+#include <cstring>
+
+ByteBuffer::ByteBuffer() : buffer_(DEFAULT_BUF_SIZE) {}
+
+void ByteBuffer::prepare(std::size_t n) {
+  // Necessary to compact only when space is needed for new data, and worth
+  // compacting only when the amount consumed is at least the amount to move
+  if (read_pos_ >= size())
+    compact();
+
+  std::size_t writable_mem = buffer_.size() - write_pos_;
+  if (writable_mem < n) {
+    buffer_.resize(std::max(write_pos_ + n,
+                            buffer_.size() * 2)); // Ensure O(1) amortised
+  }
+}
 
 void ByteBuffer::append(std::span<const std::byte> stream) {
-  buffer.append_range(stream);
-  return;
+  prepare(stream.size());
+  std::memcpy(buffer_.data() + write_pos_, stream.data(), stream.size());
+  commit(stream.size());
 }
 
 void ByteBuffer::consume(std::size_t n) {
   assert(n <= size());
-  read_pos += n;
+  read_pos_ += n;
 }
 
 std::span<const std::byte> ByteBuffer::readable() const {
-  return std::span<const std::byte>(buffer);
+  return std::span<const std::byte>{buffer_}.subspan(read_pos_, size());
 }
 
-std::size_t ByteBuffer::size() const { return buffer.size(); }
+std::span<std::byte> ByteBuffer::writable(std::size_t n) {
+  prepare(n);
+  return std::span<std::byte>{buffer_}.subspan(write_pos_, n);
+}
 
-bool ByteBuffer::empty() const { return buffer.empty(); }
+std::size_t ByteBuffer::size() const { return write_pos_ - read_pos_; }
+
+bool ByteBuffer::empty() const { return size() == 0; }
+
+void ByteBuffer::commit(std::size_t n) {
+  assert(write_pos_ + n <= buffer_.size());
+  write_pos_ += n;
+}
+
+void ByteBuffer::compact() {
+  if (read_pos_ > 0) {
+    std::memmove(buffer_.data(), readable().data(), size());
+    write_pos_ = size();
+    read_pos_ = 0;
+  }
+}

@@ -49,7 +49,7 @@ TcpListener::TcpListener(const char *ip, std::optional<uint16_t> port) {
 
 int TcpListener::fd() const { return socket_.fd(); }
 
-TcpConnection TcpListener::accept() {
+int TcpListener::accept() {
   sockaddr_in client_addr;
   socklen_t client_addr_len{sizeof(client_addr)};
   int client_fd = ::accept(fd(), reinterpret_cast<sockaddr *>(&client_addr),
@@ -58,5 +58,5 @@ TcpConnection TcpListener::accept() {
     throw std::system_error(errno, std::generic_category(), "Accept");
 
   std::println("Connected to a client");
-  return TcpConnection(Socket(client_fd));
+  return client_fd;
 }

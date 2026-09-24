@@ -8,6 +8,7 @@ add_library(database
     src/socket.cpp
     src/tcp_connection.cpp
     src/tcp_listener.cpp
+    src/server.cpp
 )
 
 target_compile_features(database PUBLIC cxx_std_23)
