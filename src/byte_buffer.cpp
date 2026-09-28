@@ -1,4 +1,4 @@
-#include "database/byte_buffer.h"
+#include "zdb/byte_buffer.h"
 #include <cassert>
 #include <cstring>
 

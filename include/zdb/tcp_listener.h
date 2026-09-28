@@ -2,11 +2,11 @@
 
 #include "socket.h"
 #include <cstddef>
-#include <optional>
+#include <cstdint>
 
 class TcpListener {
 public:
-  TcpListener(const char *, std::optional<uint16_t>);
+  TcpListener(const char *, std::uint16_t);
   int fd() const;
   int accept();
 

@@ -5,6 +5,7 @@
 // Prohibit copy, move only due to possible close() of same fd multiple times
 class Socket {
 public:
+  Socket();
   Socket(int);
   Socket(int, int, int);
   Socket(const Socket &) = delete;

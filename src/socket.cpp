@@ -1,12 +1,18 @@
-#include "database/socket.h"
+#include "zdb/socket.h"
 #include <cerrno>
 #include <sys/socket.h>
 #include <system_error>
 #include <unistd.h>
 #include <utility>
 
+Socket::Socket() : fd_{::socket(AF_INET, SOCK_STREAM, 0)} {
+  if (fd_ == -1) {
+    throw std::system_error(errno, std::generic_category(), "Socket");
+  }
+}
+
 Socket::Socket(int domain, int type, int protocol)
-    : fd_{socket(domain, type, protocol)} {
+    : fd_{::socket(domain, type, protocol)} {
   if (fd_ == -1) {
     throw std::system_error(errno, std::generic_category(), "Socket");
   }
