@@ -1,6 +1,8 @@
-#include "zdb/byte_buffer.h"
+#include "zdb/util/byte_buffer.h"
 #include <cassert>
 #include <cstring>
+
+namespace zdb::util {
 
 ByteBuffer::ByteBuffer() : buffer_(DEFAULT_BUF_SIZE) {}
 
@@ -53,3 +55,5 @@ void ByteBuffer::compact() {
     read_pos_ = 0;
   }
 }
+
+} // namespace zdb::util

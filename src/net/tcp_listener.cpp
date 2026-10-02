@@ -1,11 +1,10 @@
-#include "zdb/tcp_listener.h"
-#include "zdb/net.h"
+#include "zdb/net/tcp_listener.h"
+#include "zdb/net/socket.h"
 #include <arpa/inet.h>
-#include <format>
 #include <print>
 #include <system_error>
 
-using namespace zdb;
+namespace zdb::net {
 
 TcpListener::TcpListener(const char *ip, std::uint16_t port) {
   auto address = net::make_addr(ip, port);
@@ -29,14 +28,17 @@ TcpListener::TcpListener(const char *ip, std::uint16_t port) {
 
 int TcpListener::fd() const { return socket_.fd(); }
 
-int TcpListener::accept() {
+Socket TcpListener::accept() const {
   sockaddr_in client_addr;
   socklen_t client_addr_len{sizeof(client_addr)};
   int client_fd = ::accept(fd(), reinterpret_cast<sockaddr *>(&client_addr),
                            &client_addr_len);
   if (client_fd == -1)
-    throw std::system_error(errno, std::generic_category(), "Accept");
+    throw std::system_error(errno, std::generic_category(), "Socket");
+  else
+    std::println("Connected to a client");
 
-  std::println("Connected to a client");
-  return client_fd;
+  return Socket(client_fd);
 }
+
+} // namespace zdb::net

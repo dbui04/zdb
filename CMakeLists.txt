@@ -4,17 +4,16 @@ project(zdb LANGUAGES CXX)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
 add_library(zdb
-    src/byte_buffer.cpp
-    src/socket.cpp
-    src/tcp_connection.cpp
-    src/tcp_listener.cpp
-    src/server.cpp
-    src/client.cpp
-    src/utils.cpp
-    src/net.cpp
-    src/payload.cpp
-    src/parse.cpp
-    src/kqueue.cpp
+    src/database/database.cpp
+    src/net/client.cpp
+    src/net/kqueue.cpp
+    src/net/server.cpp
+    src/net/socket.cpp
+    src/net/tcp_connection.cpp
+    src/net/tcp_listener.cpp
+    src/protocol/serialisation.cpp
+    src/util/byte_buffer.cpp
+    src/util/time.cpp
 )
 
 target_compile_features(zdb PUBLIC cxx_std_23)

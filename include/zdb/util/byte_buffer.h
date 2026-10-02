@@ -10,6 +10,8 @@ constexpr std::size_t DEFAULT_BUF_SIZE =
 constexpr std::size_t BUF_DEL_THRESHOLD =
     4096; // Need profiling later to find out
 
+namespace zdb::util {
+
 class ByteBuffer {
 public:
   ByteBuffer();
@@ -31,3 +33,5 @@ private:
 
   void compact();
 };
+
+} // namespace zdb::util
