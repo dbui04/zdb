@@ -3,8 +3,8 @@
 #include "zdb/protocol/framing.h"
 #include "zdb/protocol/message.h"
 #include <cstdint>
+#include <cstdlib>
 #include <print>
-#include <stdexcept>
 
 namespace zdb::net {
 
@@ -23,7 +23,8 @@ void Client::send(protocol::Request &req) {
     std::println("Client sent request successfully");
     break;
   default:
-    throw std::invalid_argument("Client: Error happened when sending request");
+    std::println("Client: Error happened when sending request");
+    std::exit(EXIT_FAILURE);
   }
 }
 
@@ -34,11 +35,14 @@ protocol::Response Client::receive() {
     auto res = protocol::try_decode<protocol::Response>(conn_.readable_input());
     if (res.has_value()) {
       return (*res).first;
-    } else
-      throw std::invalid_argument("Client: Decoding response failed");
+    } else {
+      std::println("Client: Decoding response failed");
+      std::exit(EXIT_FAILURE);
+    }
   }
   default:
-    throw std::invalid_argument("Client: Error happened when recv response");
+    std::println("Client: Error happened when recv response");
+    std::exit(EXIT_FAILURE);
   }
 }
 

@@ -1,27 +1,20 @@
 #include "zdb/net/socket.h"
 #include <arpa/inet.h>
 #include <cerrno>
+#include <cstdlib>
 #include <fcntl.h>
 #include <format>
+#include <print>
 #include <sys/socket.h>
-#include <system_error>
 #include <unistd.h>
 #include <utility>
 
 namespace zdb::net {
 
-Socket::Socket() : fd_{::socket(AF_INET, SOCK_STREAM, 0)} {
-  if (fd_ == -1) {
-    throw std::system_error(errno, std::generic_category(), "Socket");
-  }
-}
+Socket::Socket() : fd_{::socket(AF_INET, SOCK_STREAM, 0)} {}
 
 Socket::Socket(int domain, int type, int protocol)
-    : fd_{::socket(domain, type, protocol)} {
-  if (fd_ == -1) {
-    throw std::system_error(errno, std::generic_category(), "Socket");
-  }
-}
+    : fd_{::socket(domain, type, protocol)} {}
 
 Socket::Socket(int fd) : fd_{fd} {}
 
@@ -48,15 +41,17 @@ Socket::~Socket() {
 
 int Socket::fd() const { return fd_; }
 
-sockaddr_in make_addr(const char *ip, std::uint16_t port) {
+sockaddr_in make_addr(const char *ip, std::uint16_t port) noexcept {
   // See .sin_addr in https://man7.org/linux/man-pages/man7/ip.7.html
   auto addr = htonl(INADDR_LOOPBACK);
   if (ip != nullptr) {
     switch (inet_pton(AF_INET, ip, &addr)) {
     case 0:
-      throw std::invalid_argument(std::format("Invalid IP address:{}", ip));
+      std::println(stderr, "Invalid IP address: {}", ip);
+      std::exit(EXIT_FAILURE);
     case -1:
-      throw std::system_error(errno, std::generic_category(), "Convert IP");
+      std::println(stderr, "Invalid AF family");
+      std::exit(EXIT_FAILURE);
     }
   }
   return {
@@ -66,23 +61,26 @@ sockaddr_in make_addr(const char *ip, std::uint16_t port) {
   };
 }
 
-void bind(int fd, sockaddr_in &address) {
+void bind(int fd, sockaddr_in &address) noexcept {
   if (::bind(fd, reinterpret_cast<const sockaddr *>(&address),
              sizeof(address)) == -1) {
-    throw std::system_error(errno, std::generic_category(), "Bind");
+    std::println("Bind failed, errno: {}", errno);
+    std::exit(EXIT_FAILURE);
   }
 }
 
-void listen(int fd, int backlog) {
+void listen(int fd, int backlog) noexcept {
   if (::listen(fd, backlog) == -1) {
-    throw std::system_error(errno, std::generic_category(), "Listen");
+    std::println("Listen failed, errno: {}", errno);
+    std::exit(EXIT_FAILURE);
   }
 }
 
 void connect(int fd, sockaddr_in &address) {
   if (::connect(fd, reinterpret_cast<sockaddr *>(&address), sizeof(address)) ==
       -1) {
-    throw std::system_error(errno, std::generic_category(), "Connect");
+    std::println("Connect failed, errno: {}", errno);
+    std::exit(EXIT_FAILURE);
   }
 }
 

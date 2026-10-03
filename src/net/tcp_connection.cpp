@@ -1,4 +1,5 @@
 #include "zdb/net/tcp_connection.h"
+#include "zdb/net/io_result.h"
 #include <cassert>
 #include <cerrno>
 #include <utility>
@@ -12,32 +13,37 @@ IoResult TcpConnection::send() {
   // remote peer, which could terminate the program. Ignore the signal and
   // handle EPIPE instead.
   // See https://man7.org/linux/man-pages/man2/sendmsg.2.html
-  ssize_t byte_sent = ::send(socket_.fd(), output_.readable().data(),
-                             output_.size(), MSG_NOSIGNAL);
+  auto byte_sent = ::send(socket_.fd(), output_.readable().data(),
+                          output_.size(), MSG_NOSIGNAL);
   if (byte_sent >= 0) {
-    output_.consume(byte_sent);
+    if (!output_.consume(byte_sent))
+      return {net::IoResult::Status::error,
+              static_cast<std::size_t>(byte_sent)};
     return {net::IoResult::Status::success,
             static_cast<std::size_t>(byte_sent)};
   } else {
-    if (errno == EAGAIN || errno == EWOULDBLOCK)
-      return {net::IoResult::Status::block, 0};
-    return {net::IoResult::Status::error, 0};
+    return (errno == EAGAIN || errno == EWOULDBLOCK)
+               ? IoResult{net::IoResult::Status::block, 0}
+               : IoResult{net::IoResult::Status::error, 0};
   }
 }
 
 IoResult TcpConnection::receive() {
-  ssize_t byte_received =
+  auto byte_received =
       ::recv(socket_.fd(), input_.writable(BUF_SIZE).data(), BUF_SIZE, 0);
   if (byte_received > 0) {
-    input_.commit(byte_received);
+    if (!input_.commit(byte_received)) {
+      return {net::IoResult::Status::error,
+              static_cast<std::size_t>(byte_received)};
+    }
     return {net::IoResult::Status::success,
             static_cast<std::size_t>(byte_received)};
-  } else if (byte_received == 0)
+  } else if (byte_received == 0) {
     return {net::IoResult::Status::eof, 0};
-  else {
-    if (errno == EAGAIN || errno == EWOULDBLOCK)
-      return {net::IoResult::Status::block, 0};
-    return {net::IoResult::Status::error, 0};
+  } else {
+    return (errno == EAGAIN || errno == EWOULDBLOCK)
+               ? IoResult{net::IoResult::Status::block, 0}
+               : IoResult{net::IoResult::Status::error, 0};
   }
 }
 
@@ -47,7 +53,9 @@ std::span<const std::byte> TcpConnection::readable_input() const {
   return input_.readable();
 }
 
-void TcpConnection::consume_input(std::size_t count) { input_.consume(count); }
+bool TcpConnection::consume_input(std::size_t count) {
+  return input_.consume(count);
+}
 
 void TcpConnection::queue_output(std::vector<std::byte> bytes) {
   output_.append(bytes);
@@ -55,7 +63,4 @@ void TcpConnection::queue_output(std::vector<std::byte> bytes) {
 
 bool TcpConnection::has_pending_output() const { return !output_.empty(); }
 
-void TcpConnection::set_read_eof() { read_eof_ = true; }
-
-bool TcpConnection::is_read_eof() const { return read_eof_; }
 } // namespace zdb::net

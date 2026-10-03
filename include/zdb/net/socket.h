@@ -26,9 +26,9 @@ private:
   int fd_ = -1;
 };
 
-sockaddr_in make_addr(const char *ip, std::uint16_t port);
-void bind(int fd, sockaddr_in &);
-void listen(int, int backlog = SOMAXCONN);
+sockaddr_in make_addr(const char *ip, std::uint16_t port) noexcept;
+void bind(int fd, sockaddr_in &) noexcept;
+void listen(int, int backlog = SOMAXCONN) noexcept;
 void connect(int fd, sockaddr_in &);
 bool set_non_blocking(int fd);
 

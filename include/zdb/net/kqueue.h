@@ -1,6 +1,5 @@
 #pragma once
 
-#include "zdb/net/socket.h"
 #include <cstdint>
 #include <functional>
 #include <optional>
@@ -40,7 +39,7 @@ public:
   bool remove_events(std::uintptr_t ident, std::optional<Kevent> event);
 
   // Register events and return num of ready events
-  std::size_t register_events();
+  std::optional<std::size_t> register_events();
   std::span<const Kevent> get_event_list(std::size_t);
 
 private:

@@ -22,18 +22,17 @@ public:
   int fd() const;
 
   std::span<const std::byte> readable_input() const;
-  void consume_input(std::size_t count);
+
+  [[nodiscard]]
+  bool consume_input(std::size_t count);
+
   void queue_output(std::vector<std::byte> bytes);
   bool has_pending_output() const;
-
-  void set_read_eof();
-  bool is_read_eof() const;
 
 private:
   Socket socket_;
   util::ByteBuffer input_;
   util::ByteBuffer output_;
-  bool read_eof_ = false;
 };
 
 } // namespace zdb::net

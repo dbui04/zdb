@@ -16,14 +16,21 @@ class ByteBuffer {
 public:
   ByteBuffer();
   void append(std::span<const std::byte>);
-  void consume(std::size_t); // Mark first n readable bytes as read
-  void commit(std::size_t);  // Commit next n bytes as written
+
+  [[nodiscard]]
+  bool consume(std::size_t); // Mark first n readable bytes as read
+
+  [[nodiscard]]
+  bool commit(std::size_t); // Commit next n bytes as written
+
   void prepare(std::size_t); // Ensure n bytes are available for writing
   std::span<const std::byte>
   readable() const; // Call consume after parsing from readable
   std::span<std::byte>
   writable(std::size_t); // Call commit() after writing to writable
   std::size_t size() const;
+
+  [[nodiscard]]
   bool empty() const;
 
 private:

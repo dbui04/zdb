@@ -1,6 +1,8 @@
 #include "zdb/util/byte_buffer.h"
 #include <cassert>
+#include <cstdlib>
 #include <cstring>
+#include <print>
 
 namespace zdb::util {
 
@@ -22,12 +24,18 @@ void ByteBuffer::prepare(std::size_t n) {
 void ByteBuffer::append(std::span<const std::byte> stream) {
   prepare(stream.size());
   std::memcpy(buffer_.data() + write_pos_, stream.data(), stream.size());
-  commit(stream.size());
+  if (!commit(stream.size())) {
+    std::println("ByteBuffer logic flawed, verify the logic again!");
+    std::exit(EXIT_FAILURE);
+  }
 }
 
-void ByteBuffer::consume(std::size_t n) {
-  assert(n <= size());
+bool ByteBuffer::consume(std::size_t n) {
+  if (n > size())
+    return false;
+
   read_pos_ += n;
+  return true;
 }
 
 std::span<const std::byte> ByteBuffer::readable() const {
@@ -43,9 +51,12 @@ std::size_t ByteBuffer::size() const { return write_pos_ - read_pos_; }
 
 bool ByteBuffer::empty() const { return size() == 0; }
 
-void ByteBuffer::commit(std::size_t n) {
-  assert(write_pos_ + n <= buffer_.size());
+bool ByteBuffer::commit(std::size_t n) {
+  if (write_pos_ + n > buffer_.size())
+    return false;
+
   write_pos_ += n;
+  return true;
 }
 
 void ByteBuffer::compact() {

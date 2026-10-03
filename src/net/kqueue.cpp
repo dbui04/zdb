@@ -1,6 +1,7 @@
 #include "zdb/net/kqueue.h"
+#include <cstdlib>
+#include <print>
 #include <stdexcept>
-#include <system_error>
 #include <unistd.h>
 
 namespace zdb::net {
@@ -14,8 +15,8 @@ bool operator==(const Kevent &lhs, const Kevent &rhs) {
 Kqueue::Kqueue() : evlist_(1) {
   fd_ = kqueue();
   if (fd_ == -1) {
-    throw std::system_error(errno, std::generic_category(),
-                            "Kqueue initialisation");
+    std::println(stderr, "Kqueue: Initialisaton failed; errno: {}", errno);
+    std::exit(EXIT_FAILURE);
   }
 }
 
@@ -38,17 +39,6 @@ void Kqueue::add_event(std::uintptr_t ident, std::int16_t filter,
 bool Kqueue::remove_events(std::uintptr_t ident, std::optional<Kevent> event) {
   if (event) {
     return pending_chlist_.erase({ident, (*event).filter});
-    // auto [first, last] = pending_chlist_.equal_range({ident,
-    // (*event).filter}); bool deleted = false;
-    //
-    // while (first != last) {
-    //   if (first->second == *event) {
-    //     first = pending_chlist_.erase(first);
-    //     deleted = true;
-    //   } else
-    //     std::advance(first, 1);
-    // }
-    // return deleted;
   } else {
     const std::array filters{EVFILT_READ, EVFILT_WRITE};
     bool ret = false;
@@ -60,7 +50,7 @@ bool Kqueue::remove_events(std::uintptr_t ident, std::optional<Kevent> event) {
   }
 }
 
-std::size_t Kqueue::register_events() {
+std::optional<std::size_t> Kqueue::register_events() {
   for (auto &i : pending_chlist_) {
     chlist_.emplace_back();
     auto ev = i.second;
@@ -77,8 +67,14 @@ std::size_t Kqueue::register_events() {
 
   chlist_.clear();
 
-  if (result == -1)
-    throw std::system_error(errno, std::generic_category(), "Kevent");
+  if (result == -1) {
+    if (errno == EINTR)
+      return std::nullopt;
+    else {
+      std::println("Kqueue: Error while registering events; errno: {}", errno);
+      std::exit(EXIT_FAILURE);
+    }
+  }
 
   return result;
 }
