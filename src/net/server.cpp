@@ -1,8 +1,10 @@
 #include "zdb/net/server.h"
 #include "zdb/net/socket.h"
+#include "zdb/net/tcp_connection.h"
 #include "zdb/protocol/framing.h"
 #include "zdb/protocol/message.h"
 #include "zdb/util/time.h"
+#include <algorithm>
 #include <cassert>
 #include <cstdlib>
 #include <fcntl.h>
@@ -12,13 +14,16 @@
 
 namespace zdb::net {
 
-Server::Server(const char *ip, const std::uint16_t port) : listener_{ip, port} {
+Server::Server(const char *ip, const std::uint16_t port)
+    : listener_{ip, port}, clients_(INIT_FD_LIST_SIZE) {
   if (!set_non_blocking(listener_.fd())) {
     std::println(stderr,
                  "Failed to set non-blocking mode for listener; exiting.");
     std::exit(EXIT_FAILURE);
   }
   kq_.add_event(listener_.fd(), EVFILT_READ, EV_ADD, 0, 0, nullptr);
+  kq_.add_event(0, EVFILT_TIMER, EV_ADD, NOTE_NSECONDS, 1e9 / EXPIRY_SCAN_FREQ,
+                nullptr); // Repeatedly clean up
 }
 
 void Server::run() {
@@ -50,7 +55,7 @@ void Server::run() {
         continue;
       }
 
-      if (event_fd == listener_.fd()) {
+      if (event_fd == listener_.fd() && event.filter != EVFILT_TIMER) {
         auto [client, err] = listener_.accept();
 
         if (!client) {
@@ -59,19 +64,40 @@ void Server::run() {
           }
           // For other errno just retry
         } else {
-          if (!set_non_blocking((*client).fd())) {
+          const int client_fd = (*client).fd();
+          if (!set_non_blocking(client_fd) ||
+              !set_sockopt(client_fd, SO_REUSEADDR) ||
+              !set_sockopt(client_fd, SO_KEEPALIVE)) {
             std::println(stderr,
-                         "Failed to set non-blocking mode for fd {}, closing.",
-                         (*client).fd());
+                         "Failed to set flags and options for fd {}, closing.",
+                         client_fd);
             continue;
             // client would go out of scope here. Destructor auto-called and
             // close the fd.
           }
-          // Is it possible that an existing fd is closed by an external program
-          // and is still being tracked by connections_, but accept() returns
-          // the same fd of the closed connection for the new one?
-          const int client_fd = (*client).fd();
-          connections_.emplace(client_fd, TcpConnection(std::move(*client)));
+          if (static_cast<std::size_t>(client_fd) >= MAX_FD_LIST_SIZE) {
+            // TODO: Should evict existing clients instead!!!!
+            std::println(stderr,
+                         "Client fd {}, larger than max num of clients allowed",
+                         client_fd);
+            std::exit(EXIT_FAILURE);
+          }
+
+          if (static_cast<std::size_t>(client_fd) >= clients_.size()) {
+            clients_.resize(std::max(clients_.size() * 2,
+                                     static_cast<std::size_t>(client_fd + 1)));
+          }
+
+          if (clients_[client_fd]) {
+            std::println(stderr,
+                         "Client fd {} created while the program still "
+                         "tracks the same fd. Check the logic again!",
+                         client_fd);
+            std::exit(EXIT_FAILURE);
+          }
+
+          clients_[client_fd] = {.conn = TcpConnection{std::move(*client)},
+                                 .last_activity = util::Clock::now()};
           kq_.add_event(client_fd, EVFILT_READ, EV_ADD, 0, 0, nullptr);
         }
       } else {
@@ -80,16 +106,17 @@ void Server::run() {
         // removed it from the connection list. But the kqueue still returned it
         // for one more cycle.
 
-        if (!connections_.contains(event_fd) || to_close.contains(event_fd))
-          continue;
-
-        auto &conn = connections_.at(event_fd);
-
         if (event.filter == EVFILT_READ) {
+          if (!clients_[event_fd] || to_close.contains(event_fd))
+            continue;
+
+          auto &conn = (*clients_[event_fd]).conn;
+
           auto [status, byte_received] = conn.receive();
 
           switch (status) {
           case net::IoResult::Status::success:
+            (*clients_[event_fd]).last_activity = util::Clock::now();
             while (auto ret = protocol::try_decode<protocol::Request>(
                        conn.readable_input())) {
               auto [req, count] = std::move(*ret);
@@ -121,6 +148,11 @@ void Server::run() {
         }
 
         else if (event.filter == EVFILT_WRITE) {
+          if (!clients_[event_fd] || to_close.contains(event_fd))
+            continue;
+
+          auto &conn = (*clients_[event_fd]).conn;
+
           if (event.flags & EV_EOF) {
             to_close.emplace(event_fd);
             // What if there's still an READ event in this batch?
@@ -129,6 +161,7 @@ void Server::run() {
           auto result = conn.send();
           switch (result.status) {
           case net::IoResult::Status::success:
+            (*clients_[event_fd]).last_activity = util::Clock::now();
             if (!conn.has_pending_output())
               kq_.add_event(conn.fd(), EVFILT_WRITE, EV_DELETE, 0, 0, nullptr);
             break;
@@ -137,6 +170,29 @@ void Server::run() {
             continue;
           default:
             break;
+          }
+        }
+
+        else if (event.filter == EVFILT_TIMER) {
+          // Remove expired connections
+          // The EXPIRY_SCAN_FREQ determines how many elements are scanned each
+          // time, so that every element is scanned roughly once per sec
+
+          std::size_t num_clients_to_scan = std::max(
+              clients_.size() / EXPIRY_SCAN_FREQ, static_cast<std::size_t>(1));
+
+          while (num_clients_to_scan--) {
+            auto &client = clients_[expiry_cursor_];
+            if (client) {
+              auto now = util::Clock::now();
+              if (now - (*client).last_activity >
+                  std::chrono::seconds(CONN_TTL_SECONDS)) {
+                std::println("Conn fd{} will be closed due to inactivity",
+                             (*client).conn.fd());
+                to_close.emplace((*client).conn.fd());
+              }
+            }
+            expiry_cursor_ = (expiry_cursor_ + 1) % clients_.size();
           }
         }
       }
@@ -148,10 +204,8 @@ void Server::run() {
 }
 
 void Server::close_connection(int fd) {
-  if (connections_.contains(fd)) {
-    connections_.erase(fd);
-    kq_.remove_events(fd, std::nullopt);
-  }
+  clients_[fd] = std::nullopt;
+  kq_.remove_events(fd, std::nullopt);
 }
 
 protocol::Response Server::process_request(protocol::Request req) {

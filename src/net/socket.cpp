@@ -89,4 +89,8 @@ bool set_non_blocking(int fd) {
   return !(flags == -1 || fcntl(fd, F_SETFL, flags | O_NONBLOCK) == -1);
 }
 
+bool set_sockopt(int fd, int option, int optval, int level) {
+  return setsockopt(fd, level, option, &optval, sizeof(optval)) == 0;
+}
+
 } // namespace zdb::net

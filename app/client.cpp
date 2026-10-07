@@ -2,6 +2,7 @@
 #include <netinet/in.h>
 #include <print>
 #include <sys/socket.h>
+#include <thread>
 #include <unistd.h>
 
 int main() {
@@ -20,18 +21,22 @@ int main() {
   // auto buf = std::bit_cast<std::array<std::byte, sizeof(uint8_t)>>(value);
   // write(client_fd, buf.data(), buf.size());
 
-  zdb::protocol::Request req;
-  req.cmd = zdb::protocol::Request::Command::set;
-  req.key = "Hello I'm key";
-  client.send(req);
-  switch (client.receive().status) {
-  case zdb::protocol::Response::Status::ok:
-    std::println("Response: Ok");
-    break;
-  case zdb::protocol::Response::Status::error:
-    std::println("Response: Error");
-    break;
-  default:
-    std::println("Response cannot be parsed");
+  while (1) {
+    zdb::protocol::Request req;
+    req.cmd = zdb::protocol::Request::Command::set;
+    req.key = "Hello I'm key";
+    client.send(req);
+    switch (client.receive().status) {
+    case zdb::protocol::Response::Status::ok:
+      std::println("Response: Ok");
+      break;
+    case zdb::protocol::Response::Status::error:
+      std::println("Response: Error");
+      break;
+    default:
+      std::println("Response cannot be parsed");
+    }
+
+    std::this_thread::sleep_for(std::chrono::seconds(11));
   }
 }
