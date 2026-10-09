@@ -11,7 +11,6 @@ add_library(zdb
     src/net/socket.cpp
     src/net/tcp_connection.cpp
     src/net/tcp_listener.cpp
-    src/protocol/serialisation.cpp
     src/util/byte_buffer.cpp
     src/util/time.cpp
 )

@@ -1,20 +1,26 @@
 #include "zdb/util/time.h"
 #include <chrono>
+#include <expected>
+#include <utility>
 
 namespace zdb::util {
 
-// See https://en.cppreference.com/cpp/chrono/system_clock , sys_seconds as time
-// point
-std::optional<TimePoint>
-timepoint_from_unix(std::optional<std::int64_t> unix_time) {
-  if (!unix_time)
-    return std::nullopt;
+// Perform arithmetic with WideDuration which uses __int128 as rep to check for
+// potential steady_clock::duration::rep overflow
+std::expected<TimePoint, TimeError>
+timepoint_from_unix(std::int64_t unix_time) {
+  const auto system_now = std::chrono::system_clock::now();
+  const auto clock_now = Clock::now();
 
-  const std::chrono::sys_seconds unix_timepoint{
-      std::chrono::seconds(*unix_time)};
+  const auto offset = WideDuration{Seconds{unix_time}} -
+                      WideDuration{system_now.time_since_epoch()};
 
-  return Clock::now() + std::chrono::duration_cast<Duration>(
-                            unix_timepoint - std::chrono::system_clock::now());
+  const auto res = WideDuration{clock_now.time_since_epoch()} + offset;
+
+  if (!std::in_range<Duration::rep>(res.count()))
+    return std::unexpected{TimeError::value_overflows_clock_rep};
+
+  return TimePoint{Duration{res}};
 }
 
 } // namespace zdb::util

@@ -16,7 +16,12 @@ Client::Client(const char *remote_ip, std::uint16_t remote_port) : conn_{{}} {
 int Client::fd() const { return conn_.fd(); }
 
 void Client::send(protocol::Request &req) {
-  conn_.queue_output(protocol::encode(req));
+  auto encoded = protocol::encode(req);
+  if (!encoded) {
+    std::println("Client: Encoding failed");
+    std::exit(EXIT_FAILURE);
+  }
+  conn_.queue_output(*encoded);
   auto result = conn_.send();
   switch (result.status) {
   case net::IoResult::Status::success:
@@ -33,8 +38,8 @@ protocol::Response Client::receive() {
   switch (io_result.status) {
   case net::IoResult::Status::success: {
     auto res = protocol::try_decode<protocol::Response>(conn_.readable_input());
-    if (res.has_value()) {
-      return (*res).first;
+    if (res) {
+      return (*res).data;
     } else {
       std::println("Client: Decoding response failed");
       std::exit(EXIT_FAILURE);

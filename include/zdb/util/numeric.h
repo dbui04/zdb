@@ -1,15 +1,17 @@
 #pragma once
 
 #include <concepts>
-#include <stdexcept>
+#include <expected>
 #include <utility>
 
 namespace zdb::util {
 
+enum class NumericError { out_of_range };
+
 template <std::integral To, std::integral From>
-constexpr To in_range_cast(From v) {
+constexpr std::expected<To, NumericError> in_range_cast(From v) {
   if (!std::in_range<To>(v))
-    throw std::out_of_range("in_range_cast(): conversion out of range");
+    return std::unexpected{NumericError::out_of_range};
 
   return static_cast<To>(v);
 }

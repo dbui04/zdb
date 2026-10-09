@@ -1,6 +1,8 @@
 #include "zdb/net/server.h"
+#include "zdb/net/io_result.h"
 #include "zdb/net/socket.h"
 #include "zdb/net/tcp_connection.h"
+#include "zdb/protocol/error.h"
 #include "zdb/protocol/framing.h"
 #include "zdb/protocol/message.h"
 #include "zdb/util/time.h"
@@ -50,6 +52,7 @@ void Server::run() {
           std::println(stderr, "Kqueue reported error with listener event");
           std::exit(EXIT_FAILURE);
         }
+        std::println("EV_ERROR set for client fd {}, closing...", event_fd);
 
         to_close.emplace(event_fd);
         continue;
@@ -117,20 +120,53 @@ void Server::run() {
           switch (status) {
           case net::IoResult::Status::success:
             (*clients_[event_fd]).last_activity = util::Clock::now();
-            while (auto ret = protocol::try_decode<protocol::Request>(
-                       conn.readable_input())) {
-              auto [req, count] = std::move(*ret);
-              if (!conn.consume_input(count)) {
-                // Something went wrong with consuming the input buffer,
-                // possibly be a logic issue
-                std::println("Error consuming input buf of conn {} after "
-                             "decoding request",
-                             event_fd);
-                std::exit(EXIT_FAILURE);
+
+            while (true) {
+              auto ret = protocol::try_decode<protocol::Request>(
+                  conn.readable_input());
+
+              if (ret) {
+                auto decoded = std::move(*ret);
+                if (!conn.consume_input(decoded.read_bytes)) {
+                  // Something went wrong with consuming the input buffer,
+                  // possibly be a logic issue
+                  std::println("Error consuming input buf of conn {} after "
+                               "decoding request",
+                               event_fd);
+                  std::exit(EXIT_FAILURE);
+                }
+                auto res = process_request(std::move(decoded.data));
+
+                auto encoded = protocol::encode(res);
+
+                if (!encoded) {
+                  std::println("Encoding Response failed. Check logic again. "
+                               "Exiting...");
+                  std::exit(EXIT_FAILURE);
+                }
+                conn.queue_output(*encoded);
+                kq_.add_event(conn.fd(), EVFILT_WRITE, EV_ADD, 0, 0, nullptr);
+              } else {
+                switch (ret.error()) {
+                case FramingError::not_enough_data:
+                  break;
+                case FramingError::too_large_frame:
+                  std::println(
+                      stderr,
+                      "Decoding error: Too large frame. Closing conn {}.",
+                      conn.fd());
+                  to_close.emplace(conn.fd());
+                  break;
+                case FramingError::malformed_data:
+                  std::println(stderr,
+                               "Decoding error: Malformed data found "
+                               "in message. Closing conn {}.",
+                               conn.fd());
+                  to_close.emplace(conn.fd());
+                  break;
+                }
+                break;
               }
-              auto res = process_request(std::move(req));
-              conn.queue_output(protocol::encode(res));
-              kq_.add_event(conn.fd(), EVFILT_WRITE, EV_ADD, 0, 0, nullptr);
             }
             break;
 
@@ -153,11 +189,6 @@ void Server::run() {
 
           auto &conn = (*clients_[event_fd]).conn;
 
-          if (event.flags & EV_EOF) {
-            to_close.emplace(event_fd);
-            // What if there's still an READ event in this batch?
-            continue;
-          }
           auto result = conn.send();
           switch (result.status) {
           case net::IoResult::Status::success:
@@ -166,6 +197,12 @@ void Server::run() {
               kq_.add_event(conn.fd(), EVFILT_WRITE, EV_DELETE, 0, 0, nullptr);
             break;
           case net::IoResult::Status::error:
+            to_close.emplace(event_fd);
+            continue;
+          case net::IoResult::Status::eof:
+            std::println("Client fd {} closed its reading side. Closing the "
+                         "connection...",
+                         event_fd);
             to_close.emplace(event_fd);
             continue;
           default:
@@ -213,9 +250,25 @@ protocol::Response Server::process_request(protocol::Request req) {
 
   switch (req.cmd) {
   case protocol::Request::Command::set:
-    database_.set(std::move(req.key), std::move(req.value),
-                  util::timepoint_from_unix(req.expire_at));
-    res.status = protocol::Response::Status::ok;
+    if (req.expire_at) {
+      auto expire_at = util::timepoint_from_unix(*req.expire_at);
+      if (expire_at) {
+        database_.set(std::move(req.key), std::move(req.value), *expire_at);
+        res.status = protocol::Response::Status::ok;
+      } else {
+        res.status = protocol::Response::Status::error;
+        switch (expire_at.error()) {
+        case util::TimeError::value_overflows_clock_rep:
+          res.description = std::format(
+              "SET: expire_at value {} overflows clock representation!",
+              *req.expire_at);
+          break;
+        }
+      }
+    } else {
+      database_.set(std::move(req.key), std::move(req.value), std::nullopt);
+      res.status = protocol::Response::Status::ok;
+    }
     break;
 
   case protocol::Request::Command::get: {
@@ -237,13 +290,22 @@ protocol::Response Server::process_request(protocol::Request req) {
           std::format("EXPIRE: expiration time must be specified");
       break;
     }
-    bool ret =
-        database_.expire(req.key, *util::timepoint_from_unix(req.expire_at));
-    if (ret)
-      res.status = protocol::Response::Status::ok;
-    else {
+
+    auto expire_at = util::timepoint_from_unix(*req.expire_at);
+
+    if (expire_at) {
+      auto ret = database_.expire(req.key, *expire_at);
+      if (ret)
+        res.status = protocol::Response::Status::ok;
+      else {
+        res.status = protocol::Response::Status::error;
+        res.description = std::format("EXPIRE: key {} not found!", req.key);
+      }
+    } else {
       res.status = protocol::Response::Status::error;
-      res.description = std::format("EXPIRE: key {} not found!", req.key);
+      res.description =
+          std::format("SET: expire_at value {} overflows clock representation!",
+                      *req.expire_at);
     }
     break;
   }
