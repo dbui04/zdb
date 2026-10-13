@@ -31,6 +31,6 @@ void bind(int fd, sockaddr_in &) noexcept;
 void listen(int, int backlog = SOMAXCONN) noexcept;
 void connect(int fd, sockaddr_in &);
 bool set_non_blocking(int fd);
-bool set_sockopt(int fd, int option, int optval = 1, int level = SOL_SOCKET);
+bool set_sockopt(int fd, int option, int level = SOL_SOCKET, int optval = 1);
 
 } // namespace zdb::net

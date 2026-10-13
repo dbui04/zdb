@@ -10,6 +10,7 @@
 #include <cassert>
 #include <cstdlib>
 #include <fcntl.h>
+#include <netinet/tcp.h>
 #include <print>
 #include <unistd.h>
 #include <unordered_set>
@@ -25,7 +26,7 @@ Server::Server(const char *ip, const std::uint16_t port)
   }
   kq_.add_event(listener_.fd(), EVFILT_READ, EV_ADD, 0, 0, nullptr);
   kq_.add_event(0, EVFILT_TIMER, EV_ADD, NOTE_NSECONDS, 1e9 / EXPIRY_SCAN_FREQ,
-                nullptr); // Repeatedly clean up
+                nullptr); // Repeatedly clean up stale connections
 }
 
 void Server::run() {
@@ -70,7 +71,8 @@ void Server::run() {
           const int client_fd = (*client).fd();
           if (!set_non_blocking(client_fd) ||
               !set_sockopt(client_fd, SO_REUSEADDR) ||
-              !set_sockopt(client_fd, SO_KEEPALIVE)) {
+              !set_sockopt(client_fd, SO_KEEPALIVE) ||
+              !set_sockopt(client_fd, TCP_NODELAY, IPPROTO_TCP)) {
             std::println(stderr,
                          "Failed to set flags and options for fd {}, closing.",
                          client_fd);
